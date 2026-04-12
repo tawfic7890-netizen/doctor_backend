@@ -1,5 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+
+export interface Visit {
+  id: number;
+  doctor_id: number;
+  visited_at: string;
+  created_at: string;
+}
 
 export interface Doctor {
   id: number;
@@ -13,13 +20,8 @@ export interface Doctor {
   class: string;
   request: string;
   note: string;
-  visit1: string;
-  visit2: string;
-  mar_visit1: string;
-  mar_visit2: string;
-  apr_visit1: string;
-  apr_visit2: string;
   schedules: any;
+  visits?: Visit[];
 }
 
 export interface DoctorFilters {
@@ -32,7 +34,31 @@ export interface DoctorFilters {
 
 @Injectable()
 export class DoctorsService {
+  private readonly logger = new Logger(DoctorsService.name);
+
   constructor(private readonly supabase: SupabaseService) {}
+
+  /** Fetch all visits and return them indexed by doctor_id for fast lookup. */
+  private async fetchVisitsMap(): Promise<Map<number, Visit[]>> {
+    const { data, error } = await this.supabase
+      .getClient()
+      .from('visits')
+      .select('*')
+      .order('visited_at', { ascending: false });
+
+    if (error) {
+      this.logger.error(`fetchVisitsMap failed: ${error.message} — visits will be empty`);
+      return new Map();
+    }
+
+    this.logger.log(`fetchVisitsMap: loaded ${(data as Visit[]).length} visit rows`);
+    const map = new Map<number, Visit[]>();
+    for (const v of data as Visit[]) {
+      if (!map.has(v.doctor_id)) map.set(v.doctor_id, []);
+      map.get(v.doctor_id)!.push(v);
+    }
+    return map;
+  }
 
   async findAll(filters: DoctorFilters): Promise<Doctor[]> {
     let query = this.supabase.getClient().from('doctors').select('*');
@@ -48,10 +74,20 @@ export class DoctorsService {
       );
     }
 
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
+    const [{ data, error }, visitsMap] = await Promise.all([
+      query,
+      this.fetchVisitsMap(),
+    ]);
 
-    let doctors = data as Doctor[];
+    if (error) {
+      this.logger.error(`findAll failed: ${error.message} (code: ${error.code})`);
+      throw new InternalServerErrorException(`Failed to fetch doctors: ${error.message}`);
+    }
+
+    let doctors = (data as Doctor[]).map((d) => ({
+      ...d,
+      visits: visitsMap.get(d.id) ?? [],
+    }));
 
     // Filter by day
     if (filters.day) {
@@ -69,18 +105,13 @@ export class DoctorsService {
       const today = new Date();
       doctors = doctors.filter((d) => {
         const status = this.computeStatus(d, today);
-        return status === filters.status.toUpperCase();
+        return status === filters.status!.toUpperCase();
       });
     }
 
-    // Hide F colleagues (show only if they have an april visit)
+    // Hide F colleagues
     if (filters.hideF === undefined || filters.hideF === true) {
-      doctors = doctors.filter((d) => {
-        if (d.class?.toLowerCase() === 'f') {
-          return !!(d.apr_visit1 || d.apr_visit2);
-        }
-        return true;
-      });
+      doctors = doctors.filter((d) => d.class?.toLowerCase() !== 'f');
     }
 
     // Sort
@@ -98,38 +129,52 @@ export class DoctorsService {
   }
 
   async findOne(id: number): Promise<Doctor> {
-    const { data, error } = await this.supabase
-      .getClient()
-      .from('doctors')
-      .select('*')
-      .eq('id', id)
-      .single();
-    if (error || !data) throw new NotFoundException(`Doctor ${id} not found`);
-    return data as Doctor;
+    const [{ data, error }, visitsMap] = await Promise.all([
+      this.supabase.getClient().from('doctors').select('*').eq('id', id).single(),
+      this.fetchVisitsMap(),
+    ]);
+
+    if (error || !data) {
+      this.logger.warn(`Doctor ${id} not found`);
+      throw new NotFoundException(`Doctor ${id} not found`);
+    }
+
+    return { ...(data as Doctor), visits: visitsMap.get(id) ?? [] };
   }
 
   async create(dto: Partial<Doctor>): Promise<Doctor> {
-    const { id: _ignored, ...payload } = dto;
+    const { id: _ignored, visits: _v, ...payload } = dto as any;
     const { data, error } = await this.supabase
       .getClient()
       .from('doctors')
       .insert([payload])
-      .select()
+      .select('*')
       .single();
-    if (error) throw new Error(error.message);
-    return data as Doctor;
+
+    if (error) {
+      this.logger.error(`create failed: ${error.message}`);
+      throw new InternalServerErrorException('Failed to create doctor');
+    }
+    return { ...(data as Doctor), visits: [] };
   }
 
   async update(id: number, dto: Partial<Doctor>): Promise<Doctor> {
+    const { visits: _v, ...payload } = dto as any;
     const { data, error } = await this.supabase
       .getClient()
       .from('doctors')
-      .update(dto)
+      .update(payload)
       .eq('id', id)
-      .select()
+      .select('*')
       .single();
-    if (error) throw new Error(error.message);
-    return data as Doctor;
+
+    if (error) {
+      this.logger.error(`update #${id} failed: ${error.message}`);
+      throw new InternalServerErrorException('Failed to update doctor');
+    }
+
+    const visitsMap = await this.fetchVisitsMap();
+    return { ...(data as Doctor), visits: visitsMap.get(id) ?? [] };
   }
 
   async remove(id: number): Promise<void> {
@@ -138,7 +183,11 @@ export class DoctorsService {
       .from('doctors')
       .delete()
       .eq('id', id);
-    if (error) throw new Error(error.message);
+
+    if (error) {
+      this.logger.error(`remove #${id} failed: ${error.message}`);
+      throw new InternalServerErrorException('Failed to delete doctor');
+    }
   }
 
   isDeal(doctor: Doctor): boolean {
@@ -151,17 +200,9 @@ export class DoctorsService {
   }
 
   getLastVisit(doctor: Doctor): Date | null {
-    const dates = [
-      doctor.visit1,
-      doctor.visit2,
-      doctor.mar_visit1,
-      doctor.mar_visit2,
-      doctor.apr_visit1,
-      doctor.apr_visit2,
-    ]
-      .filter(Boolean)
-      .map((d) => new Date(d));
-    if (dates.length === 0) return null;
+    const visits = doctor.visits ?? [];
+    if (visits.length === 0) return null;
+    const dates = visits.map((v) => new Date(v.visited_at));
     return new Date(Math.max(...dates.map((d) => d.getTime())));
   }
 
@@ -171,7 +212,7 @@ export class DoctorsService {
     const last = this.getLastVisit(doctor);
     if (!last) return 'NEVER';
     const diffDays = (today.getTime() - last.getTime()) / (1000 * 60 * 60 * 24);
-    if (diffDays > 30) return 'NEED_VISIT';
+    if (diffDays > 12) return 'NEED_VISIT';
     return 'RECENT';
   }
 

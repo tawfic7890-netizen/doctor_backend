@@ -4,8 +4,9 @@ import { SupabaseModule } from './supabase/supabase.module';
 import { DoctorsModule } from './doctors/doctors.module';
 import { VisitsModule } from './visits/visits.module';
 import { StatsModule } from './stats/stats.module';
+import { PlansModule } from './plans/plans.module';
 
 @Module({
-  imports: [ConfigModule.forRoot(), SupabaseModule, DoctorsModule, VisitsModule, StatsModule],
+  imports: [ConfigModule.forRoot(), SupabaseModule, DoctorsModule, VisitsModule, StatsModule, PlansModule],
 })
 export class AppModule {}

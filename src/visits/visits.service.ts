@@ -1,72 +1,45 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable, NotFoundException,
+  InternalServerErrorException, Logger,
+} from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
-import { DoctorsService } from '../doctors/doctors.service';
 
 @Injectable()
 export class VisitsService {
-  constructor(
-    private readonly supabase: SupabaseService,
-    private readonly doctorsService: DoctorsService,
-  ) {}
+  private readonly logger = new Logger(VisitsService.name);
 
-  async recordVisit(
-    doctorId: number,
-    month: string,
-    visitNumber: 1 | 2,
-    date: string,
-  ) {
-    const fieldMap: Record<string, Record<number, string>> = {
-      mar: { 1: 'mar_visit1', 2: 'mar_visit2' },
-      apr: { 1: 'apr_visit1', 2: 'apr_visit2' },
-    };
-    const field = fieldMap[month]?.[visitNumber];
-    if (!field) throw new Error(`Invalid month "${month}" or visitNumber "${visitNumber}"`);
+  constructor(private readonly supabase: SupabaseService) {}
 
-    const update: Record<string, string> = { [field]: date };
+  async recordVisit(doctorId: number, date: string) {
     const { data, error } = await this.supabase
       .getClient()
-      .from('doctors')
-      .update(update)
-      .eq('id', doctorId)
+      .from('visits')
+      .insert({ doctor_id: doctorId, visited_at: date })
       .select()
       .single();
-    if (error) throw new Error(error.message);
+
+    if (error) {
+      this.logger.error(`recordVisit #${doctorId} failed: ${error.message}`);
+      throw new InternalServerErrorException('Failed to record visit');
+    }
     return data;
   }
 
   async visitToday(doctorId: number) {
-    const doctor = await this.doctorsService.findOne(doctorId);
-    if (!doctor) throw new NotFoundException(`Doctor ${doctorId} not found`);
-
     const today = new Date().toISOString().split('T')[0];
-    let field = 'apr_visit1';
-    if (doctor.apr_visit1) {
-      field = 'apr_visit2';
-    }
-
-    const { data, error } = await this.supabase
-      .getClient()
-      .from('doctors')
-      .update({ [field]: today })
-      .eq('id', doctorId)
-      .select()
-      .single();
-    if (error) throw new Error(error.message);
-    return data;
+    return this.recordVisit(doctorId, today);
   }
 
-  async clearVisit(doctorId: number, field: string) {
-    const allowedFields = ['apr_visit1', 'apr_visit2', 'mar_visit1', 'mar_visit2'];
-    if (!allowedFields.includes(field)) throw new Error(`Invalid field: ${field}`);
-
-    const { data, error } = await this.supabase
+  async clearVisit(visitId: number) {
+    const { error } = await this.supabase
       .getClient()
-      .from('doctors')
-      .update({ [field]: null })
-      .eq('id', doctorId)
-      .select()
-      .single();
-    if (error) throw new Error(error.message);
-    return data;
+      .from('visits')
+      .delete()
+      .eq('id', visitId);
+
+    if (error) {
+      this.logger.error(`clearVisit #${visitId} failed: ${error.message}`);
+      throw new InternalServerErrorException('Failed to delete visit');
+    }
   }
 }
