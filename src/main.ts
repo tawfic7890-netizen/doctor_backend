@@ -12,23 +12,27 @@ async function bootstrap() {
   // ─── CORS ────────────────────────────────────────────────────────────────────
   // CORS_ORIGIN can be a comma-separated list for multiple allowed origins
   // e.g. CORS_ORIGIN=https://tawfic.vercel.app,http://localhost:3000
-  const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
+  // If CORS_ORIGIN is not set, all origins are allowed (open during development/initial deploy).
+  const corsOriginEnv = process.env.CORS_ORIGIN;
+  const corsOrigin = corsOriginEnv
+    ? (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        const allowed = corsOriginEnv.split(',').map((o) => o.trim()).filter(Boolean);
+        logger.log(`CORS allowed origins: ${allowed.join(', ')}`);
+        if (!origin || allowed.includes(origin)) {
+          callback(null, true);
+        } else {
+          logger.warn(`CORS blocked: ${origin}`);
+          callback(null, false); // return false, not an Error — prevents 500
+        }
+      }
+    : true; // allow all origins when env var is not set
 
-  logger.log(`CORS allowed origins: ${allowedOrigins.join(', ')}`);
+  if (!corsOriginEnv) {
+    logger.warn('CORS_ORIGIN not set — all origins allowed. Set it in production!');
+  }
 
   app.enableCors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (server-to-server, curl, mobile)
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        logger.warn(`CORS blocked: ${origin}`);
-        callback(new Error(`Origin ${origin} not allowed by CORS`));
-      }
-    },
+    origin: corsOrigin,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true,
