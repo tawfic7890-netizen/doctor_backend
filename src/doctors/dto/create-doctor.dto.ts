@@ -5,13 +5,11 @@ import {
   IsArray,
   IsIn,
   MaxLength,
-  Matches,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 const VALID_DAYS    = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const VALID_CLASSES = ['A', 'a', 'B', 'F'];
-const DATE_REGEX    = /^\d{4}-\d{2}-\d{2}$/;
 
 export class CreateDoctorDto {
   @ApiProperty({ example: 'Dr. Ahmad Khalil' })
@@ -74,14 +72,4 @@ export class CreateDoctorDto {
   @IsOptional()
   @MaxLength(1000)
   note?: string;
-
-  @ApiPropertyOptional({ example: '2026-04-05' })
-  @IsOptional()
-  @Matches(DATE_REGEX, { message: 'apr_visit1 must be YYYY-MM-DD' })
-  apr_visit1?: string | null;
-
-  @ApiPropertyOptional({ example: '2026-04-19' })
-  @IsOptional()
-  @Matches(DATE_REGEX, { message: 'apr_visit2 must be YYYY-MM-DD' })
-  apr_visit2?: string | null;
 }

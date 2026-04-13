@@ -1,7 +1,4 @@
-import {
-  Injectable, NotFoundException,
-  InternalServerErrorException, Logger,
-} from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
@@ -19,7 +16,7 @@ export class VisitsService {
       .single();
 
     if (error) {
-      this.logger.error(`recordVisit #${doctorId} failed: ${error.message}`);
+      this.logger.error(`recordVisit #${doctorId} on ${date} failed: ${error.message}`);
       throw new InternalServerErrorException('Failed to record visit');
     }
     return data;

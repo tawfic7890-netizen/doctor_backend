@@ -1,4 +1,7 @@
-import { Injectable, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Injectable, NotFoundException,
+  InternalServerErrorException, Logger,
+} from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 
 export interface Visit {
@@ -38,8 +41,8 @@ export class DoctorsService {
 
   constructor(private readonly supabase: SupabaseService) {}
 
-  /** Fetch all visits and return them indexed by doctor_id for fast lookup. */
-  private async fetchVisitsMap(): Promise<Map<number, Visit[]>> {
+  /** Fetch ALL visits and index by doctor_id — used when we need visits for many doctors. */
+  private async fetchAllVisitsMap(): Promise<Map<number, Visit[]>> {
     const { data, error } = await this.supabase
       .getClient()
       .from('visits')
@@ -47,17 +50,32 @@ export class DoctorsService {
       .order('visited_at', { ascending: false });
 
     if (error) {
-      this.logger.error(`fetchVisitsMap failed: ${error.message} — visits will be empty`);
+      this.logger.error(`fetchAllVisitsMap failed: ${error.message}`);
       return new Map();
     }
 
-    this.logger.log(`fetchVisitsMap: loaded ${(data as Visit[]).length} visit rows`);
     const map = new Map<number, Visit[]>();
     for (const v of data as Visit[]) {
       if (!map.has(v.doctor_id)) map.set(v.doctor_id, []);
       map.get(v.doctor_id)!.push(v);
     }
     return map;
+  }
+
+  /** Fetch visits for a single doctor only. */
+  private async fetchVisitsForDoctor(doctorId: number): Promise<Visit[]> {
+    const { data, error } = await this.supabase
+      .getClient()
+      .from('visits')
+      .select('*')
+      .eq('doctor_id', doctorId)
+      .order('visited_at', { ascending: false });
+
+    if (error) {
+      this.logger.error(`fetchVisitsForDoctor #${doctorId} failed: ${error.message}`);
+      return [];
+    }
+    return data as Visit[];
   }
 
   async findAll(filters: DoctorFilters): Promise<Doctor[]> {
@@ -74,9 +92,10 @@ export class DoctorsService {
       );
     }
 
+    // Run doctors query and full visits fetch in parallel
     const [{ data, error }, visitsMap] = await Promise.all([
       query,
-      this.fetchVisitsMap(),
+      this.fetchAllVisitsMap(),
     ]);
 
     if (error) {
@@ -96,17 +115,15 @@ export class DoctorsService {
         mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat',
         monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu', friday: 'Fri', saturday: 'Sat',
       };
-      const targetDay = DAY_MAP[dayLower] || filters.day;
+      const targetDay = DAY_MAP[dayLower] ?? filters.day;
       doctors = doctors.filter((d) => Array.isArray(d.days) && d.days.includes(targetDay));
     }
 
     // Filter by status
     if (filters.status) {
       const today = new Date();
-      doctors = doctors.filter((d) => {
-        const status = this.computeStatus(d, today);
-        return status === filters.status!.toUpperCase();
-      });
+      const upper = filters.status.toUpperCase();
+      doctors = doctors.filter((d) => this.computeStatus(d, today) === upper);
     }
 
     // Hide F colleagues
@@ -114,12 +131,11 @@ export class DoctorsService {
       doctors = doctors.filter((d) => d.class?.toLowerCase() !== 'f');
     }
 
-    // Sort
+    // Sort: DEAL → NEVER → NEED_VISIT → RECENT → F, then area, then name
     const today = new Date();
     doctors.sort((a, b) => {
-      const sa = this.sortWeight(a, today);
-      const sb = this.sortWeight(b, today);
-      if (sa !== sb) return sa - sb;
+      const diff = this.sortWeight(a, today) - this.sortWeight(b, today);
+      if (diff !== 0) return diff;
       if (a.area < b.area) return -1;
       if (a.area > b.area) return 1;
       return a.name.localeCompare(b.name);
@@ -129,9 +145,10 @@ export class DoctorsService {
   }
 
   async findOne(id: number): Promise<Doctor> {
-    const [{ data, error }, visitsMap] = await Promise.all([
+    // Only fetch visits for this specific doctor, not the entire visits table
+    const [{ data, error }, visits] = await Promise.all([
       this.supabase.getClient().from('doctors').select('*').eq('id', id).single(),
-      this.fetchVisitsMap(),
+      this.fetchVisitsForDoctor(id),
     ]);
 
     if (error || !data) {
@@ -139,11 +156,11 @@ export class DoctorsService {
       throw new NotFoundException(`Doctor ${id} not found`);
     }
 
-    return { ...(data as Doctor), visits: visitsMap.get(id) ?? [] };
+    return { ...(data as Doctor), visits };
   }
 
   async create(dto: Partial<Doctor>): Promise<Doctor> {
-    const { id: _ignored, visits: _v, ...payload } = dto as any;
+    const { id: _id, visits: _v, ...payload } = dto as any;
     const { data, error } = await this.supabase
       .getClient()
       .from('doctors')
@@ -160,21 +177,19 @@ export class DoctorsService {
 
   async update(id: number, dto: Partial<Doctor>): Promise<Doctor> {
     const { visits: _v, ...payload } = dto as any;
-    const { data, error } = await this.supabase
-      .getClient()
-      .from('doctors')
-      .update(payload)
-      .eq('id', id)
-      .select('*')
-      .single();
+
+    // Run the update and the visits fetch in parallel
+    const [{ data, error }, visits] = await Promise.all([
+      this.supabase.getClient().from('doctors').update(payload).eq('id', id).select('*').single(),
+      this.fetchVisitsForDoctor(id),
+    ]);
 
     if (error) {
       this.logger.error(`update #${id} failed: ${error.message}`);
       throw new InternalServerErrorException('Failed to update doctor');
     }
 
-    const visitsMap = await this.fetchVisitsMap();
-    return { ...(data as Doctor), visits: visitsMap.get(id) ?? [] };
+    return { ...(data as Doctor), visits };
   }
 
   async remove(id: number): Promise<void> {
@@ -191,7 +206,7 @@ export class DoctorsService {
   }
 
   isDeal(doctor: Doctor): boolean {
-    const name = doctor.name?.toLowerCase() || '';
+    const name = doctor.name?.toLowerCase() ?? '';
     return (
       name.includes('abdulrazak othman') ||
       name.includes('ayad fallah') ||
@@ -202,8 +217,7 @@ export class DoctorsService {
   getLastVisit(doctor: Doctor): Date | null {
     const visits = doctor.visits ?? [];
     if (visits.length === 0) return null;
-    const dates = visits.map((v) => new Date(v.visited_at));
-    return new Date(Math.max(...dates.map((d) => d.getTime())));
+    return new Date(Math.max(...visits.map((v) => new Date(v.visited_at).getTime())));
   }
 
   computeStatus(doctor: Doctor, today: Date = new Date()): string {
@@ -212,19 +226,13 @@ export class DoctorsService {
     const last = this.getLastVisit(doctor);
     if (!last) return 'NEVER';
     const diffDays = (today.getTime() - last.getTime()) / (1000 * 60 * 60 * 24);
-    if (diffDays > 12) return 'NEED_VISIT';
-    return 'RECENT';
+    return diffDays > 12 ? 'NEED_VISIT' : 'RECENT';
   }
 
   sortWeight(doctor: Doctor, today: Date): number {
-    const status = this.computeStatus(doctor, today);
     const weights: Record<string, number> = {
-      DEAL: 0,
-      NEVER: 1,
-      NEED_VISIT: 2,
-      RECENT: 3,
-      F: 9,
+      DEAL: 0, NEVER: 1, NEED_VISIT: 2, RECENT: 3, F: 9,
     };
-    return weights[status] ?? 5;
+    return weights[this.computeStatus(doctor, today)] ?? 5;
   }
 }
