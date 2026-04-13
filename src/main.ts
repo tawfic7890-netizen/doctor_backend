@@ -10,32 +10,43 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
   // ─── CORS ────────────────────────────────────────────────────────────────────
-  // CORS_ORIGIN can be a comma-separated list for multiple allowed origins
-  // e.g. CORS_ORIGIN=https://tawfic.vercel.app,http://localhost:3000
-  // If CORS_ORIGIN is not set, all origins are allowed (open during development/initial deploy).
+  // Use an Express-level middleware so OPTIONS preflight is handled before NestJS
+  // routing (which would 404 it). CORS_ORIGIN is a comma-separated list of
+  // allowed origins. If unset, all origins are reflected back (open during
+  // initial deploy — lock it down once the frontend URL is known).
   const corsOriginEnv = process.env.CORS_ORIGIN;
-  const corsOrigin = corsOriginEnv
-    ? (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-        const allowed = corsOriginEnv.split(',').map((o) => o.trim()).filter(Boolean);
-        logger.log(`CORS allowed origins: ${allowed.join(', ')}`);
-        if (!origin || allowed.includes(origin)) {
-          callback(null, true);
-        } else {
-          logger.warn(`CORS blocked: ${origin}`);
-          callback(null, false); // return false, not an Error — prevents 500
-        }
-      }
-    : true; // allow all origins when env var is not set
+  const allowedOrigins = corsOriginEnv
+    ? corsOriginEnv.split(',').map((o) => o.trim()).filter(Boolean)
+    : null; // null = allow all
 
-  if (!corsOriginEnv) {
+  if (!allowedOrigins) {
     logger.warn('CORS_ORIGIN not set — all origins allowed. Set it in production!');
+  } else {
+    logger.log(`CORS allowed origins: ${allowedOrigins.join(', ')}`);
   }
 
-  app.enableCors({
-    origin: corsOrigin,
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-    credentials: true,
+  app.use((req: any, res: any, next: any) => {
+    const origin: string | undefined = req.headers.origin;
+    const isAllowed = !allowedOrigins || !origin || allowedOrigins.includes(origin);
+
+    if (isAllowed) {
+      // Reflect the actual origin (required when credentials: true — can't use *)
+      res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
+      res.setHeader('Vary', 'Origin');
+    } else {
+      logger.warn(`CORS blocked: ${origin}`);
+    }
+
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    // Respond to preflight immediately — never let OPTIONS reach route handlers
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
   });
 
   // ─── Global validation pipe ───────────────────────────────────────────────────
