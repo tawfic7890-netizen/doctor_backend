@@ -9,15 +9,17 @@ export class VisitsExportController {
   constructor(private readonly visitsService: VisitsService) {}
 
   @Get('export')
-  @ApiOperation({ summary: 'Export visits as CSV' })
-  @ApiQuery({ name: 'month', required: false, description: 'Filter by month (YYYY-MM), e.g. 2026-04' })
+  @ApiOperation({ summary: 'Export visits as CSV. Priority: date > month > all.' })
+  @ApiQuery({ name: 'date',  required: false, description: 'Single day (YYYY-MM-DD), e.g. 2026-04-13' })
+  @ApiQuery({ name: 'month', required: false, description: 'Whole month (YYYY-MM), e.g. 2026-04' })
   @ApiResponse({ status: 200, description: 'CSV file download' })
   async exportCsv(
+    @Query('date')  date:  string | undefined,
     @Query('month') month: string | undefined,
     @Res() res: Response,
   ) {
-    const csv = await this.visitsService.exportCsv(month);
-    const filename = month ? `visits-${month}.csv` : 'visits-all.csv';
+    const csv = await this.visitsService.exportCsv(month, date);
+    const filename = date ? `visits-${date}.csv` : month ? `visits-${month}.csv` : 'visits-all.csv';
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);

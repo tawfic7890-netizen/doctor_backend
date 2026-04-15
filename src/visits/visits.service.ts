@@ -40,15 +40,21 @@ export class VisitsService {
     }
   }
 
-  /** Build a CSV of all visits joined with doctor info, optionally filtered by month (YYYY-MM). */
-  async exportCsv(month?: string): Promise<string> {
+  /**
+   * Build a CSV of visits joined with doctor info.
+   * Priority: date (exact day) > month (YYYY-MM) > all.
+   */
+  async exportCsv(month?: string, date?: string): Promise<string> {
     let visitsQuery = this.supabase
       .getClient()
       .from('visits')
       .select('*')
       .order('visited_at', { ascending: false });
 
-    if (month) {
+    if (date) {
+      // Exact single day
+      visitsQuery = visitsQuery.eq('visited_at', date);
+    } else if (month) {
       const [y, m] = month.split('-').map(Number);
       const nextY = m === 12 ? y + 1 : y;
       const nextM = m === 12 ? 1 : m + 1;
