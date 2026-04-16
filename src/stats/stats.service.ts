@@ -85,4 +85,61 @@ export class StatsService {
       byArea,
     };
   }
+
+  /**
+   * Returns monthly visit statistics for the last `months` calendar months
+   * (including the current month), sorted oldest → newest.
+   */
+  async getHistory(months = 6) {
+    const now = new Date();
+
+    // First day of the earliest month we need
+    const startDate = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+    const startStr  = startDate.toISOString().split('T')[0];
+
+    const [{ data: visitsRaw, error: vErr }, { data: doctorsRaw, error: dErr }] =
+      await Promise.all([
+        this.supabase.getClient()
+          .from('visits')
+          .select('doctor_id, visited_at')
+          .gte('visited_at', startStr),
+        this.supabase.getClient()
+          .from('doctors')
+          .select('id, class'),
+      ]);
+
+    if (vErr || dErr) {
+      this.logger.error(`getHistory failed: ${(vErr ?? dErr)!.message}`);
+      throw new InternalServerErrorException('Failed to fetch history');
+    }
+
+    const activeIds = new Set(
+      (doctorsRaw as any[])
+        .filter((d) => d.class?.toLowerCase() !== 'f')
+        .map((d) => d.id),
+    );
+    const totalActive = activeIds.size;
+
+    // Count unique doctors visited per month
+    // monthVisitors: month-key → Set<doctor_id>
+    const monthVisitors = new Map<string, Set<number>>();
+    for (const v of visitsRaw as any[]) {
+      const key = (v.visited_at as string).slice(0, 7); // YYYY-MM
+      if (!monthVisitors.has(key)) monthVisitors.set(key, new Set());
+      monthVisitors.get(key)!.add(v.doctor_id);
+    }
+
+    // Build one entry per calendar month
+    const result = Array.from({ length: months }, (_, i) => {
+      const d     = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
+      const key   = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      const visited    = monthVisitors.get(key)?.size ?? 0;
+      const coverage   = totalActive > 0 ? Math.round((visited / totalActive) * 100) : 0;
+      const isCurrent  = key === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      return { month: key, label, visited, totalActive, coverage, isCurrent };
+    });
+
+    return result;
+  }
 }

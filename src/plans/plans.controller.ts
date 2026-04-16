@@ -1,8 +1,5 @@
-import {
-  Controller, Get, Put,
-  Param, Body, Logger,
-} from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, Put, Param, Body, Query, Logger } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { PlansService } from './plans.service';
 import { SetPlanDto } from './dto/set-plan.dto';
 
@@ -13,29 +10,37 @@ export class PlansController {
 
   constructor(private readonly plansService: PlansService) {}
 
+  /**
+   * Returns plans for the Mon–Sat week containing the given date.
+   * Defaults to the current week when no date is provided.
+   */
+  @Get('week')
+  @ApiOperation({ summary: 'Get plans for the Mon–Sat week containing a date (defaults to today)' })
+  @ApiQuery({ name: 'date', required: false, description: 'Any date in the desired week (YYYY-MM-DD). Defaults to today.' })
+  getWeekPlans(@Query('date') date?: string) {
+    return this.plansService.getWeekPlans(date);
+  }
+
   @Get()
-  @ApiOperation({ summary: 'Get all daily plans (mon–sat)' })
+  @ApiOperation({ summary: 'Get all saved plans' })
   getAllPlans() {
     return this.plansService.getAllPlans();
   }
 
-  @Get(':day')
-  @ApiOperation({ summary: 'Get the doctor list planned for a specific day' })
-  @ApiParam({ name: 'day', enum: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'] })
+  @Get(':date')
+  @ApiOperation({ summary: 'Get plan for a specific date (YYYY-MM-DD)' })
+  @ApiParam({ name: 'date', example: '2026-04-16' })
   @ApiResponse({ status: 200, description: '{ day, doctor_ids }' })
-  getPlan(@Param('day') day: string) {
-    return this.plansService.getPlan(day.toLowerCase());
+  getPlan(@Param('date') date: string) {
+    return this.plansService.getPlan(date);
   }
 
-  @Put(':day')
-  @ApiOperation({ summary: 'Save the doctor list for a specific day (upsert)' })
-  @ApiParam({ name: 'day', enum: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat'] })
+  @Put(':date')
+  @ApiOperation({ summary: 'Set (upsert) the doctor list for a specific date' })
+  @ApiParam({ name: 'date', example: '2026-04-16' })
   @ApiResponse({ status: 200, description: 'Plan saved' })
-  setPlan(
-    @Param('day') day: string,
-    @Body() dto: SetPlanDto,
-  ) {
-    this.logger.log(`Saving plan for ${day}: ${dto.doctorIds.length} doctors`);
-    return this.plansService.setPlan(day.toLowerCase(), dto.doctorIds);
+  setPlan(@Param('date') date: string, @Body() dto: SetPlanDto) {
+    this.logger.log(`Saving plan for ${date}: ${dto.doctorIds.length} doctors`);
+    return this.plansService.setPlan(date, dto.doctorIds);
   }
 }

@@ -131,13 +131,10 @@ export class DoctorsService {
       doctors = doctors.filter((d) => d.class?.toLowerCase() !== 'f');
     }
 
-    // Sort: DEAL → NEVER → NEED_VISIT → RECENT → F, then area, then name
-    const today = new Date();
+    // Sort: a★ (Deal Priority) → A (Priority) → B (Normal) → F (Colleague), then name
     doctors.sort((a, b) => {
-      const diff = this.sortWeight(a, today) - this.sortWeight(b, today);
+      const diff = this.classWeight(a) - this.classWeight(b);
       if (diff !== 0) return diff;
-      if (a.area < b.area) return -1;
-      if (a.area > b.area) return 1;
       return a.name.localeCompare(b.name);
     });
 
@@ -205,13 +202,9 @@ export class DoctorsService {
     }
   }
 
+  /** Deal Priority doctors are those with class 'a' — no hardcoded names. */
   isDeal(doctor: Doctor): boolean {
-    const name = doctor.name?.toLowerCase() ?? '';
-    return (
-      name.includes('abdulrazak othman') ||
-      name.includes('ayad fallah') ||
-      name.includes('ahmad moustafa')
-    );
+    return doctor.class === 'a';
   }
 
   getLastVisit(doctor: Doctor): Date | null {
@@ -234,5 +227,16 @@ export class DoctorsService {
       DEAL: 0, NEVER: 1, NEED_VISIT: 2, RECENT: 3, F: 9,
     };
     return weights[this.computeStatus(doctor, today)] ?? 5;
+  }
+
+  /** Primary sort key: a (Deal Priority) → A (Priority) → B (Normal) → F (Colleague) */
+  classWeight(doctor: Doctor): number {
+    switch (doctor.class) {
+      case 'a': return 0;
+      case 'A': return 1;
+      case 'B': return 2;
+      case 'F': return 3;
+      default:  return 2;
+    }
   }
 }

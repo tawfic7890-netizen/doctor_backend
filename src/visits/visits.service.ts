@@ -8,6 +8,20 @@ export class VisitsService {
   constructor(private readonly supabase: SupabaseService) {}
 
   async recordVisit(doctorId: number, date: string) {
+    // Return existing visit silently if one already exists for this doctor on this date
+    const { data: existing } = await this.supabase
+      .getClient()
+      .from('visits')
+      .select('*')
+      .eq('doctor_id', doctorId)
+      .eq('visited_at', date)
+      .maybeSingle();
+
+    if (existing) {
+      this.logger.log(`recordVisit #${doctorId} on ${date} — already exists, skipping`);
+      return existing;
+    }
+
     const { data, error } = await this.supabase
       .getClient()
       .from('visits')
