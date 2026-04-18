@@ -64,6 +64,7 @@ export class StatsService {
     const areaMap: Record<string, { total: number; visited: number }> = {};
     for (const d of doctors) {
       if (d.class?.toLowerCase() === 'f') continue;
+      if (!this.doctorsService.getLastVisit(d)) continue; // exclude never-visited
       const area = d.area || 'Unknown';
       if (!areaMap[area]) areaMap[area] = { total: 0, visited: 0 };
       areaMap[area].total++;

@@ -2,6 +2,7 @@ import { Controller, Get, Query, Res } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { Response } from 'express';
 import { VisitsService } from './visits.service';
+import { Public } from '../auth/auth.guard';
 
 @ApiTags('visits')
 @Controller('visits')
@@ -9,6 +10,7 @@ export class VisitsExportController {
   constructor(private readonly visitsService: VisitsService) {}
 
   @Get('export')
+  @Public()
   @ApiOperation({ summary: 'Export visits as CSV. Priority: date > month > all.' })
   @ApiQuery({ name: 'date',  required: false, description: 'Single day (YYYY-MM-DD), e.g. 2026-04-13' })
   @ApiQuery({ name: 'month', required: false, description: 'Whole month (YYYY-MM), e.g. 2026-04' })
