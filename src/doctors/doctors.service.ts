@@ -131,10 +131,12 @@ export class DoctorsService {
       doctors = doctors.filter((d) => d.class?.toLowerCase() !== 'f');
     }
 
-    // Sort: a★ (Deal Priority) → A (Priority) → B (Normal) → F (Colleague), then name
+    // Sort: a★ (Deal Priority) → A (Priority) → B (Normal) → F (Colleague), then area, then name
     doctors.sort((a, b) => {
       const diff = this.classWeight(a) - this.classWeight(b);
       if (diff !== 0) return diff;
+      const areaDiff = (a.area || '').localeCompare(b.area || '');
+      if (areaDiff !== 0) return areaDiff;
       return a.name.localeCompare(b.name);
     });
 
@@ -157,7 +159,13 @@ export class DoctorsService {
   }
 
   async create(dto: Partial<Doctor>): Promise<Doctor> {
-    const { id: _id, visits: _v, ...payload } = dto as any;
+    const { id: _id, visits: _v, ...raw } = dto as any;
+
+    // Remove keys with undefined values — Supabase rejects them
+    const payload = Object.fromEntries(
+      Object.entries(raw).filter(([, v]) => v !== undefined),
+    );
+
     const { data, error } = await this.supabase
       .getClient()
       .from('doctors')
@@ -166,14 +174,26 @@ export class DoctorsService {
       .single();
 
     if (error) {
-      this.logger.error(`create failed: ${error.message}`);
-      throw new InternalServerErrorException('Failed to create doctor');
+      this.logger.error(
+        `create failed: ${error.message}` +
+        (error.details ? ` | details: ${error.details}` : '') +
+        (error.code    ? ` | code: ${error.code}`       : ''),
+      );
+      throw new InternalServerErrorException(
+        `Failed to create doctor: ${error.message}` +
+        (error.details ? ` — ${error.details}` : ''),
+      );
     }
     return { ...(data as Doctor), visits: [] };
   }
 
   async update(id: number, dto: Partial<Doctor>): Promise<Doctor> {
-    const { visits: _v, ...payload } = dto as any;
+    const { visits: _v, ...raw } = dto as any;
+
+    // Remove keys with undefined values — Supabase rejects them
+    const payload = Object.fromEntries(
+      Object.entries(raw).filter(([, v]) => v !== undefined),
+    );
 
     // Run the update and the visits fetch in parallel
     const [{ data, error }, visits] = await Promise.all([
@@ -182,8 +202,16 @@ export class DoctorsService {
     ]);
 
     if (error) {
-      this.logger.error(`update #${id} failed: ${error.message}`);
-      throw new InternalServerErrorException('Failed to update doctor');
+      this.logger.error(
+        `update #${id} failed: ${error.message}` +
+        (error.details ? ` | details: ${error.details}` : '') +
+        (error.hint    ? ` | hint: ${error.hint}`       : '') +
+        (error.code    ? ` | code: ${error.code}`       : ''),
+      );
+      throw new InternalServerErrorException(
+        `Failed to update doctor: ${error.message}` +
+        (error.details ? ` — ${error.details}` : ''),
+      );
     }
 
     return { ...(data as Doctor), visits };

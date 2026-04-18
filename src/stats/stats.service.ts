@@ -120,10 +120,11 @@ export class StatsService {
     );
     const totalActive = activeIds.size;
 
-    // Count unique doctors visited per month
+    // Count unique active (non-F) doctors visited per month
     // monthVisitors: month-key → Set<doctor_id>
     const monthVisitors = new Map<string, Set<number>>();
     for (const v of visitsRaw as any[]) {
+      if (!activeIds.has(v.doctor_id)) continue; // exclude F-class doctors from coverage
       const key = (v.visited_at as string).slice(0, 7); // YYYY-MM
       if (!monthVisitors.has(key)) monthVisitors.set(key, new Set());
       monthVisitors.get(key)!.add(v.doctor_id);
