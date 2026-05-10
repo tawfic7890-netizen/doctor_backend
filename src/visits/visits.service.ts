@@ -97,10 +97,10 @@ export class VisitsService {
 
     // Deduplicate: one row per visited doctor (not per visit)
     const visitedIds = new Set((visitsData as any[]).map((v) => v.doctor_id));
-    const header = 'Name,Specialty,Location';
+    const header = 'Name,Specialty,Area';
     const rows = Array.from(visitedIds).map((id) => {
       const d = doctorMap.get(id) ?? {};
-      return [d.name, d.specialty, d.location].map(escape).join(',');
+      return [d.name, d.specialty, d.area].map(escape).join(',');
     });
 
     return [header, ...rows].join('\r\n');
