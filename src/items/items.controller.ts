@@ -18,32 +18,7 @@ import { AssignItemDto, UpdateAssignmentStatusDto } from './dto/assign-item.dto'
 export class ItemsController {
   constructor(private readonly itemsService: ItemsService) {}
 
-  @Get()
-  findAll() {
-    return this.itemsService.findAll();
-  }
-
-  @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.itemsService.findOne(id);
-  }
-
-  @Post()
-  create(@Body() dto: CreateItemDto) {
-    return this.itemsService.create(dto);
-  }
-
-  @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateItemDto) {
-    return this.itemsService.update(id, dto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.itemsService.remove(id);
-  }
-
-  // ─── Assignments ────────────────────────────────────────────────────────────
+  // ─── Assignments (static paths MUST come before :id) ────────────────────────
 
   @Get('assignments/list')
   getAssignments(
@@ -74,5 +49,32 @@ export class ItemsController {
   @Delete('assignments/:id')
   removeAssignment(@Param('id', ParseIntPipe) id: number) {
     return this.itemsService.removeAssignment(id);
+  }
+
+  // ─── Items CRUD ─────────────────────────────────────────────────────────────
+
+  @Get()
+  findAll() {
+    return this.itemsService.findAll();
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.itemsService.findOne(id);
+  }
+
+  @Post()
+  create(@Body() dto: CreateItemDto) {
+    return this.itemsService.create(dto);
+  }
+
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateItemDto) {
+    return this.itemsService.update(id, dto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.itemsService.remove(id);
   }
 }
