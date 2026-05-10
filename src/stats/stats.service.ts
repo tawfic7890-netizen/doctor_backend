@@ -75,6 +75,13 @@ export class StatsService {
       .map(([area, counts]) => ({ area, ...counts }))
       .sort((a, b) => a.area.localeCompare(b.area));
 
+    // Active doctors who have been visited before but not yet this month
+    const notVisitedThisMonth = doctors.filter((d) => {
+      if (d.class?.toLowerCase() === 'f') return false;
+      if (!this.doctorsService.getLastVisit(d)) return false; // exclude never-visited
+      return visitsThisMonth(d).length === 0;
+    }).length;
+
     return {
       total: doctors.length,
       totalActive,
@@ -83,6 +90,7 @@ export class StatsService {
       visitedTwice,
       neverVisited,
       needVisit,
+      notVisitedThisMonth,
       byArea,
     };
   }

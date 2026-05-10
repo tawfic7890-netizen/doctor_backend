@@ -95,16 +95,12 @@ export class VisitsService {
 
     const escape = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
-    const header = 'Date,Day,Doctor,Specialty,Area,Class,Phone,Location';
-    const rows = (visitsData as any[]).map((v) => {
-      const d = doctorMap.get(v.doctor_id) ?? {};
-      const dayName = new Date(`${v.visited_at}T12:00:00Z`).toLocaleDateString('en-US', {
-        weekday: 'long',
-        timeZone: 'UTC',
-      });
-      return [v.visited_at, dayName, d.name, d.specialty, d.area, d.class, d.phone, d.location]
-        .map(escape)
-        .join(',');
+    // Deduplicate: one row per visited doctor (not per visit)
+    const visitedIds = new Set((visitsData as any[]).map((v) => v.doctor_id));
+    const header = 'Name,Specialty,Location';
+    const rows = Array.from(visitedIds).map((id) => {
+      const d = doctorMap.get(id) ?? {};
+      return [d.name, d.specialty, d.location].map(escape).join(',');
     });
 
     return [header, ...rows].join('\r\n');
